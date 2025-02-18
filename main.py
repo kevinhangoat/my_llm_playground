@@ -5,6 +5,10 @@ from openai import OpenAI
 from datetime import datetime
 from dotenv import load_dotenv
 
+from stt import LiveSpeechToText
+from tts import TextToSpeech
+
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -80,12 +84,18 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{model_name}_chat_history_{timestamp}.json"
     history = load_history(filename=filename)
+    stt = LiveSpeechToText()
+    tts = TextToSpeech()
+
     while True:
-        user_input = input("You: ")
-        if user_input.lower() == "exit":
+        user_input = stt.recognize_speech()
+        stt.close()
+        print("User:", user_input)
+        if user_input.lower() == "please quit now":
             print("Goodbye!")
             break
-        response = chat_with_llm(user_input, history, model_name)
+        response = chat_with_llm(user_input, history, model_name, system_content="test.json")
+        tts.speak(response)
         print();print("Bot:", response);print()
         save_history(user_input, response, filename=filename)
         history.append({"user": user_input, "bot": response})
