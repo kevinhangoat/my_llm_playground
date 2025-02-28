@@ -1,11 +1,10 @@
-import openai
 import os
 import json
 from openai import OpenAI
 from datetime import datetime
 from dotenv import load_dotenv
 
-from stt import LiveSpeechToText
+from stt import LiveSpeechToText, WhisperLiveSpeechToText
 from tts import TextToSpeech
 
 
@@ -88,8 +87,7 @@ def main():
     tts = TextToSpeech()
 
     while True:
-        user_input = stt.recognize_speech()
-        stt.close()
+        user_input = stt.start_recognition()
         print("User:", user_input)
         if user_input.lower() == "please quit now":
             print("Goodbye!")
