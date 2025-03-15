@@ -7,6 +7,7 @@ import whisper
 import wave
 import threading
 import os
+from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 
 class LiveSpeechToText:
     def __init__(self, vad_aggressiveness=3):
@@ -22,45 +23,55 @@ class LiveSpeechToText:
                                       input=True,
                                       frames_per_buffer=1024)
         self.stream.start_stream()
+        self.vad = load_silero_vad()
 
     def read_audio(self):
         return self.stream.read(320)
 
     def recognize_speech(self):
         self.delete_audio_file()
-        while not self.stop_event.is_set():
-            audio_data = b''.join([self.read_audio() for _ in range(int(5 * 16000 / 320))])
-            self._save_audio(audio_data)
-            with sr.AudioFile("output.wav") as source:
-                audio = self.model.record(source)
-            try:
-                text = self.model.recognize_google(audio, language="en-US")
-                # print(text)
-            except sr.UnknownValueError:
+        self.stream.start_stream()
+        while self.tmp_result is None:
+            audio_data = b''.join([self.read_audio() for _ in range(int(3 * 16000 / 320))])
+            end_timestamp = self._save_audio(audio_data)
+            print(f"end time is at: {end_timestamp}")
+            if end_timestamp:
+                print("End of speech detected")
+                with sr.AudioFile("output.wav") as source:
+                    audio = self.model.record(source)
                 try:
                     text = self.model.recognize_google(audio, language="zh-CN")
-                    # print(text)
+                    self.tmp_result = text
                 except sr.UnknownValueError:
-                    # print("Google Speech Recognition could not understand audio")
-                    continue
+                    print("Google Speech Recognition could not understand audio")
                 except sr.RequestError as e:
-                    print("Could not request results from Google Speech Recognition service; {0}".format(e))
-                    continue
-            except sr.RequestError as e:
-                print("Could not request results from Google Speech Recognition service; {0}".format(e))
-                continue
-        self.tmp_result = text
+                    print(f"Could not request results from Google Speech Recognition service; {e}")
 
     def start_recognition(self):
+        self.tmp_result = None
         self.stop_event = threading.Event()
         listener_thread = threading.Thread(target=self.recognize_speech)
         listener_thread.start()
 
-        input("Press Enter to stop...\n")
-        self.stop_event.set()
         listener_thread.join()
         return self.tmp_result
     
+    def check_vad(self):
+        wav = read_audio("output.wav")
+        speech_timestamps = get_speech_timestamps(
+            wav,
+            self.vad,
+            return_seconds=True,  # Return speech timestamps in seconds (default is samples)
+        )
+        if speech_timestamps:
+            end_timestamp = speech_timestamps[-1]['end']
+            if end_timestamp < len(wav) / 16000:
+                return end_timestamp
+            else:
+                return None
+        else:
+            return None
+
     def delete_audio_file(self):
         filename = "output.wav"
         if os.path.exists(filename):
@@ -82,11 +93,15 @@ class LiveSpeechToText:
             wf.setparams(params)
             wf.writeframes(existing_data)
             wf.writeframes(audio_data)
+        return self.check_vad()
 
     def close(self):
         self.stream.stop_stream()
         self.stream.close()
         self.audio.terminate()
+    
+    def pause(self):
+        self.stream.stop_stream()
 
 class WhisperLiveSpeechToText:
     def __init__(self, vad_aggressiveness=3):
